@@ -1,6 +1,7 @@
 using System.Text;
 using API.Data;
 using API.Interfaces;
+using API.Middleware;
 using API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,7 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 
 builder.Services.AddCors();//Angular talk to API
 builder.Services.AddScoped<ITokenService, TokenService>();//Dependency Injection//Lifetime = Scoped(new request instance)
+builder.Services.AddScoped<IMemberRepository, MemberRepository>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(option =>
 {
     var tokenKey = builder.Configuration["TokenKey"]
@@ -32,11 +34,27 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-app.MapControllers();//تسجيل نهايات الـ API
+app.UseDeveloperExceptionPage();
+app.UseMiddleware<ExceptionMiddleware>();
 app.UseCors(opt => opt.AllowAnyHeader().AllowAnyMethod()//any header valid and any method valid
 .WithOrigins("https://localhost:4200", "http://localhost:4200"));
 //لازم الترتيب 
 app.UseAuthentication();//1. Authentication → هل فيه Token صح ولا؟
 app.UseAuthorization();//🔹 2. Authorization → هل له صلاحيات؟
 
+app.MapControllers();//تسجيل نهايات الـ API
+
+using var scope = app.Services.CreateScope();
+var services = scope.ServiceProvider;
+try
+{
+    var context = services.GetRequiredService<AppDbContext>();
+    await context.Database.MigrateAsync();
+    await Seed.SeedUser(context);
+}
+catch (System.Exception ex)
+{
+    var logger = services.GetRequiredService<ILogger<Program>>();
+    logger.LogError(ex, "An error occured during Migrations");
+}
 app.Run();
